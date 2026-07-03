@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AI Caption & Voiceover App{% endblock %}</title>
+    <!-- Fonts: Inter & Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom Style Sheet -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Inline script to prevent theme flash -->
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'light') {
+                document.documentElement.classList.add('light-theme');
+            } else {
+                document.documentElement.classList.remove('light-theme');
+            }
+        })();
+    </script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="background-radial-glows">
+        <div class="glow-sphere glow-1"></div>
+        <div class="glow-sphere glow-2"></div>
+        <div class="glow-sphere glow-3"></div>
+    </div>
+
+    <!-- Alert Messages (Toast Container) -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        <div class="alert-container" id="global-alert-container">
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="glass-alert alert-{{ category }}">
+                        <i class="fa-solid {% if category == 'success' %}fa-circle-check{% elif category == 'danger' %}fa-circle-exclamation{% else %}fa-circle-info{% endif %} alert-icon"></i>
+                        <span class="alert-text">{{ message }}</span>
+                        <button class="alert-close-btn" onclick="this.parentElement.remove();">&times;</button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        </div>
+    {% endwith %}
+    
+    <div class="app-container">
+        <!-- Navigation bar -->
+        <nav class="glass-navbar">
+            <div class="nav-brand">
+                <i class="fa-solid fa-microphone-lines brand-icon"></i>
+                <span>Voice Over</span>
+            </div>
+            <div class="nav-links">
+                <!-- Theme Toggle Button -->
+                <button id="theme-toggle" class="theme-toggle-btn" title="Toggle Light/Dark Theme">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+                
+                {% if current_user.is_authenticated %}
+                    <span class="user-greeting"><i class="fa-solid fa-user"></i> {{ current_user.username }}</span>
+                    <a href="{{ url_for('logout') }}" class="nav-btn btn-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="nav-link-btn">Login</a>
+                    <a href="{{ url_for('register') }}" class="nav-btn btn-register">Sign Up</a>
+                {% endif %}
+            </div>
+        </nav>
+
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer class="glass-footer">
+            <div class="footer-content">
+                <div class="footer-logo">
+                    <i class="fa-solid fa-microphone-lines"></i> Voice Over
+                </div>
+                <div class="footer-copyright">
+                    &copy; <span id="year-placeholder"></span> Voice Over. All rights reserved. | Developed by ❤️ <a href="https://www.linkedin.com/in/therakeshhr" target="_blank" class="footer-link-blue">Rakesh</a>
+                </div>
+                <div class="footer-badges">
+                    <span><i class="fa-solid fa-cube"></i> Flask</span>
+                    <span><i class="fa-solid fa-bolt"></i> OpenAI API</span>
+                </div>
+            </div>
+        </footer>
+        <script>
+            document.getElementById('year-placeholder').textContent = new Date().getFullYear();
+        </script>
+    </div>
+
+    <!-- Import main.js globally so features like theme toggles work on all pages -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
