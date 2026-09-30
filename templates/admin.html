@@ -1,0 +1,616 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Dashboard - AI Caption & Voiceover App{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="admin-wrapper">
+    <!-- Admin Header Banner -->
+    <div class="admin-header-card">
+        <div class="admin-header-title-box">
+            <div class="admin-header-icon">
+                <i class="fa-solid fa-gauge-high"></i>
+            </div>
+            <div class="admin-header-text">
+                <h1>Admin Control Center</h1>
+                <div class="admin-header-subtitle">
+                    <span>Logged in as <strong>{{ current_user.username }}</strong></span>
+                    <span class="admin-badge-pill"><i class="fa-solid fa-shield-halved"></i> Super Admin</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="admin-header-actions">
+            <a href="{{ url_for('index') }}" class="btn-header-action btn-header-back" title="Go to Image & Voiceover Generator">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Open Studio
+            </a>
+            <button class="btn-header-action btn-header-primary" onclick="openCreateUserModal()">
+                <i class="fa-solid fa-user-plus"></i> Add New User
+            </button>
+        </div>
+    </div>
+
+    <!-- Top KPI Metric Cards -->
+    <div class="admin-stats-grid">
+        <!-- Metric 1: Total Users -->
+        <div class="admin-stat-card stat-purple">
+            <div class="stat-icon-wrapper">
+                <i class="fa-solid fa-users"></i>
+            </div>
+            <div class="stat-info">
+                <div class="stat-label">Total Registered Users</div>
+                <div class="stat-value">{{ stats.total_users }}</div>
+                <div class="stat-subtext">
+                    <strong>{{ stats.admin_count }}</strong> Admins · <strong>{{ stats.regular_count }}</strong> Members ({{ stats.active_creators }} Active)
+                </div>
+            </div>
+        </div>
+
+        <!-- Metric 2: Total Generations -->
+        <div class="admin-stat-card stat-cyan">
+            <div class="stat-icon-wrapper">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </div>
+            <div class="stat-info">
+                <div class="stat-label">Total Captions & Audio</div>
+                <div class="stat-value">{{ stats.total_generations }}</div>
+                <div class="stat-subtext">AI Vision descriptions and voiceovers</div>
+            </div>
+        </div>
+
+        <!-- Metric 3: Disk Storage -->
+        <div class="admin-stat-card stat-emerald">
+            <div class="stat-icon-wrapper">
+                <i class="fa-solid fa-hard-drive"></i>
+            </div>
+            <div class="stat-info">
+                <div class="stat-label">Storage Consumed</div>
+                <div class="stat-value">{{ stats.total_storage_formatted }}</div>
+                <div class="stat-subtext">
+                    {{ stats.img_count }} images · {{ stats.audio_count }} audio files
+                </div>
+            </div>
+        </div>
+
+        <!-- Metric 4: Top Voice -->
+        <div class="admin-stat-card stat-amber">
+            <div class="stat-icon-wrapper">
+                <i class="fa-solid fa-microphone-lines"></i>
+            </div>
+            <div class="stat-info">
+                <div class="stat-label">Most Popular Voice</div>
+                <div class="stat-value">{{ stats.top_voice.name }}</div>
+                <div class="stat-subtext">
+                    {{ stats.top_voice.count }} generations ({{ stats.top_voice.percentage }}%)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Navigation Tabs -->
+    <div class="admin-tabs-nav">
+        <button class="admin-tab-btn active" data-tab="tab-users">
+            <i class="fa-solid fa-users-gear"></i>
+            <span>Users Management</span>
+            <span class="tab-badge">{{ stats.total_users }}</span>
+        </button>
+        <button class="admin-tab-btn" data-tab="tab-generations">
+            <i class="fa-solid fa-photo-film"></i>
+            <span>All Generations Feed</span>
+            <span class="tab-badge">{{ stats.total_generations }}</span>
+        </button>
+        <button class="admin-tab-btn" data-tab="tab-analytics">
+            <i class="fa-solid fa-chart-pie"></i>
+            <span>Voice & Storage Analytics</span>
+        </button>
+        <button class="admin-tab-btn" data-tab="tab-diagnostics">
+            <i class="fa-solid fa-server"></i>
+            <span>System Diagnostics</span>
+        </button>
+    </div>
+
+    <!-- TAB 1: USERS DIRECTORY & MANAGEMENT -->
+    <div class="admin-tab-panel active" id="tab-users">
+        <div class="admin-section-card">
+            <!-- Toolbar: Search & Filters -->
+            <div class="admin-toolbar">
+                <div class="toolbar-search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="user-search-input" class="toolbar-search-input" placeholder="Search by username, user ID, role...">
+                </div>
+
+                <div class="toolbar-filters">
+                    <button class="filter-btn user-filter-btn active" data-filter="all">All Users ({{ stats.total_users }})</button>
+                    <button class="filter-btn user-filter-btn" data-filter="admins">Admins ({{ stats.admin_count }})</button>
+                    <button class="filter-btn user-filter-btn" data-filter="members">Members ({{ stats.regular_count }})</button>
+                    <button class="filter-btn user-filter-btn" data-filter="creators">Active Creators ({{ stats.active_creators }})</button>
+                </div>
+            </div>
+
+            <!-- Users Data Table -->
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>User ID</th>
+                            <th>User Profile</th>
+                            <th>Role</th>
+                            <th>Creations</th>
+                            <th>Storage Used</th>
+                            <th>Registered On</th>
+                            <th>Last Active</th>
+                            <th style="text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        {% for u in users %}
+                        <tr class="user-row" id="user-row-{{ u.id }}" 
+                            data-userid="#{{ u.id }}" 
+                            data-username="{{ u.username }}" 
+                            data-role="{% if u.is_admin %}admin{% else %}user{% endif %}"
+                            data-gens="{{ u.generation_count }}">
+                            
+                            <!-- ID -->
+                            <td>
+                                <span class="count-pill">#{{ u.id }}</span>
+                            </td>
+
+                            <!-- User Profile -->
+                            <td>
+                                <div class="user-cell">
+                                    <div class="user-avatar {% if u.is_admin %}avatar-admin{% endif %}">
+                                        {{ u.username[0]|upper }}
+                                    </div>
+                                    <div class="user-name-box">
+                                        <span class="user-name-title">
+                                            {{ u.username }}
+                                            {% if u.id == current_user.id %}
+                                                <span class="user-you-tag">You</span>
+                                            {% endif %}
+                                        </span>
+                                        <span class="user-id-sub">Account ID: #{{ u.id }}</span>
+                                    </div>
+                                </div>
+                            </td>
+
+                            <!-- Role -->
+                            <td>
+                                {% if u.is_admin %}
+                                    <span class="badge-role role-admin">
+                                        <i class="fa-solid fa-shield-halved"></i> Administrator
+                                    </span>
+                                {% else %}
+                                    <span class="badge-role role-user">
+                                        <i class="fa-solid fa-user"></i> Standard User
+                                    </span>
+                                {% endif %}
+                            </td>
+
+                            <!-- Creations -->
+                            <td>
+                                <button class="count-pill" style="cursor: pointer; border: none;" onclick="viewUserDetails({{ u.id }})" title="Click to view all generations">
+                                    <i class="fa-solid fa-photo-film" style="color: var(--primary);"></i>
+                                    <strong>{{ u.generation_count }}</strong> items
+                                </button>
+                            </td>
+
+                            <!-- Storage Footprint -->
+                            <td>
+                                <span class="storage-pill">
+                                    <i class="fa-solid fa-file-zipper"></i> {{ u.storage_formatted }}
+                                </span>
+                            </td>
+
+                            <!-- Registered Date -->
+                            <td>
+                                <span style="font-size: 0.85rem; color: var(--text-muted);">
+                                    <i class="fa-regular fa-calendar-days"></i> 
+                                    {% if u.created_at %}
+                                        {{ u.created_at.strftime('%b %d, %Y') }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </span>
+                            </td>
+
+                            <!-- Last Active -->
+                            <td>
+                                <span style="font-size: 0.85rem; color: var(--text-muted);">
+                                    {% if u.last_login %}
+                                        <i class="fa-regular fa-clock text-success"></i> {{ u.last_login.strftime('%b %d, %H:%M') }}
+                                    {% elif u.latest_generation %}
+                                        <i class="fa-regular fa-clock"></i> {{ u.latest_generation.strftime('%b %d, %H:%M') }}
+                                    {% else %}
+                                        <span style="opacity: 0.6;">Never</span>
+                                    {% endif %}
+                                </span>
+                            </td>
+
+                            <!-- Actions -->
+                            <td style="text-align: right;">
+                                <div class="action-buttons-group" style="justify-content: flex-end;">
+                                    <!-- View Details Modal -->
+                                    <button class="action-btn btn-view" title="Deep View User Details & Audio" onclick="viewUserDetails({{ u.id }})">
+                                        <i class="fa-solid fa-eye"></i>
+                                    </button>
+
+                                    <!-- Edit User & Reset Password -->
+                                    <button class="action-btn btn-edit" title="Edit User or Reset Password" onclick="openEditUserModal({{ u.id }}, '{{ u.username }}', '{{ u.is_admin|lower }}')">
+                                        <i class="fa-solid fa-pen-to-square"></i>
+                                    </button>
+
+                                    <!-- Toggle Admin Privileges -->
+                                    <button class="action-btn btn-role" title="{% if u.is_admin %}Demote to Standard User{% else %}Promote to Administrator{% endif %}" 
+                                            onclick="toggleUserAdmin({{ u.id }})" 
+                                            {% if u.id == current_user.id %}disabled title="Cannot remove own admin privileges"{% endif %}>
+                                        <i class="fa-solid {% if u.is_admin %}fa-user-minus{% else %}fa-user-shield{% endif %}"></i>
+                                    </button>
+
+                                    <!-- Delete User -->
+                                    <button class="action-btn btn-delete" title="Permanently Delete User" 
+                                            onclick="promptDeleteUser({{ u.id }}, '{{ u.username }}')"
+                                            {% if u.id == current_user.id %}disabled title="Cannot delete your own active account"{% endif %}>
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 2: ALL GENERATIONS FEED -->
+    <div class="admin-tab-panel" id="tab-generations">
+        <div class="admin-section-card">
+            <!-- Toolbar -->
+            <div class="admin-toolbar">
+                <div class="toolbar-search-box">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="gen-search-input" class="toolbar-search-input" placeholder="Search caption text, creator username, or voice model...">
+                </div>
+                <div style="font-size: 0.88rem; color: var(--text-muted);">
+                    Showing all <strong>{{ captions|length }}</strong> system generations
+                </div>
+            </div>
+
+            <!-- Generations Table -->
+            <div class="table-responsive">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Preview</th>
+                            <th>Creator</th>
+                            <th>Generated Caption</th>
+                            <th>Voice Model</th>
+                            <th>Voiceover Audio</th>
+                            <th>Timestamp</th>
+                            <th style="text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="generations-table-body">
+                        {% if captions %}
+                            {% for c in captions %}
+                            <tr class="gen-row" id="gen-row-{{ c.id }}"
+                                data-gen-user="{{ c.user.username if c.user else 'Deleted' }}"
+                                data-gen-caption="{{ c.caption }}"
+                                data-gen-voice="{{ c.voice }}">
+                                
+                                <!-- Thumbnail -->
+                                <td>
+                                    <img src="{{ url_for('static', filename='uploads/images/' + c.image_filename) }}" 
+                                         alt="Image" 
+                                         class="generations-table-thumb"
+                                         onclick="openLightbox('{{ url_for('static', filename='uploads/images/' + c.image_filename) }}')"
+                                         title="Click to zoom preview">
+                                </td>
+
+                                <!-- Creator -->
+                                <td>
+                                    {% if c.user %}
+                                        <div class="user-cell" style="cursor: pointer;" onclick="viewUserDetails({{ c.user.id }})">
+                                            <div class="user-avatar" style="width: 32px; height: 32px; font-size: 0.8rem;">
+                                                {{ c.user.username[0]|upper }}
+                                            </div>
+                                            <span style="font-weight: 600; font-size: 0.88rem;">{{ c.user.username }}</span>
+                                        </div>
+                                    {% else %}
+                                        <span style="color: var(--text-muted); font-size: 0.85rem;">[Deleted User]</span>
+                                    {% endif %}
+                                </td>
+
+                                <!-- Caption Text -->
+                                <td>
+                                    <div class="caption-preview-text" title="{{ c.caption }}">
+                                        {{ c.caption }}
+                                    </div>
+                                </td>
+
+                                <!-- Voice -->
+                                <td>
+                                    <span class="count-pill">
+                                        <i class="fa-solid fa-microphone"></i> {{ c.voice|capitalize }}
+                                    </span>
+                                </td>
+
+                                <!-- Audio Player -->
+                                <td>
+                                    <audio controls class="inline-audio-player" src="{{ url_for('static', filename='uploads/audio/' + c.audio_filename) }}"></audio>
+                                </td>
+
+                                <!-- Timestamp -->
+                                <td>
+                                    <span style="font-size: 0.82rem; color: var(--text-muted);">
+                                        {{ c.timestamp.strftime('%Y-%m-%d %H:%M') }}
+                                    </span>
+                                </td>
+
+                                <!-- Action -->
+                                <td style="text-align: right;">
+                                    <button class="action-btn btn-delete" title="Delete generation" onclick="deleteGenerationItem({{ c.id }}, 'gen-row-{{ c.id }}')">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="7" style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+                                    <i class="fa-regular fa-image" style="font-size: 2.5rem; margin-bottom: 0.5rem; display: block;"></i>
+                                    No image captions or voiceovers generated yet in the application.
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 3: VOICE & STORAGE ANALYTICS -->
+    <div class="admin-tab-panel" id="tab-analytics">
+        <div class="admin-section-card">
+            <div class="analytics-grid">
+                <!-- Voice Popularity Breakdown -->
+                <div class="analytics-card">
+                    <div class="analytics-card-title">
+                        <i class="fa-solid fa-chart-simple" style="color: #8b5cf6;"></i>
+                        <span>TTS Voice Usage Breakdown</span>
+                    </div>
+
+                    {% for v in voice_stats %}
+                    <div class="voice-stat-item">
+                        <div class="voice-stat-header">
+                            <span><i class="fa-solid fa-volume-high"></i> {{ v.name }}</span>
+                            <span style="color: var(--text-muted);">{{ v.count }} uses ({{ v.percentage }}%)</span>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: {{ v.percentage }}%;"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Storage & File Consumption -->
+                <div class="analytics-card">
+                    <div class="analytics-card-title">
+                        <i class="fa-solid fa-hard-drive" style="color: #06b6d4;"></i>
+                        <span>File Storage Distribution</span>
+                    </div>
+
+                    <div class="storage-stat-box">
+                        <div class="storage-stat-label">
+                            <i class="fa-regular fa-image" style="color: #38bdf8;"></i>
+                            <span>Uploaded Images</span>
+                        </div>
+                        <div class="storage-stat-val">
+                            {{ stats.img_count }} files ({{ stats.img_size_formatted }})
+                        </div>
+                    </div>
+
+                    <div class="storage-stat-box">
+                        <div class="storage-stat-label">
+                            <i class="fa-solid fa-file-audio" style="color: #10b981;"></i>
+                            <span>TTS Audio Voiceovers</span>
+                        </div>
+                        <div class="storage-stat-val">
+                            {{ stats.audio_count }} files ({{ stats.audio_size_formatted }})
+                        </div>
+                    </div>
+
+                    <div class="storage-stat-box">
+                        <div class="storage-stat-label">
+                            <i class="fa-solid fa-database" style="color: #fbbf24;"></i>
+                            <span>SQLite Database</span>
+                        </div>
+                        <div class="storage-stat-val">
+                            {{ stats.db_size_formatted }}
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--card-border);">
+                        <button class="glass-btn btn-secondary btn-block" id="cleanup-orphans-btn" onclick="runOrphanedCleanup()">
+                            <i class="fa-solid fa-broom"></i> Scan & Clean Orphaned Files
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TAB 4: SYSTEM DIAGNOSTICS -->
+    <div class="admin-tab-panel" id="tab-diagnostics">
+        <div class="admin-section-card">
+            <div class="diagnostics-grid">
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">OpenAI API Key Integration</span>
+                    <span class="status-pill">
+                        {% if stats.openai_configured %}
+                            <span class="status-dot dot-green"></span>
+                            <span style="color: #10b981;">Configured & Active</span>
+                        {% else %}
+                            <span class="status-dot dot-red"></span>
+                            <span style="color: #ef4444;">Missing API Key (.env)</span>
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Database Engine</span>
+                    <span class="diagnostic-value">SQLite (instance/voice_caption_app.db)</span>
+                </div>
+
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">AI Models In Use</span>
+                    <span class="diagnostic-value">Vision: gpt-4o-mini · TTS: tts-1</span>
+                </div>
+
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Upload Storage Root</span>
+                    <span class="diagnostic-value">static/uploads/ (images & audio)</span>
+                </div>
+
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Administrator Account</span>
+                    <span class="diagnostic-value">{{ current_user.username }} (Configured in app.py)</span>
+                </div>
+
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Session Security</span>
+                    <span class="status-pill">
+                        <span class="status-dot dot-green"></span>
+                        <span>Flask-Login Authenticated</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==============================================
+     ADMIN MODALS
+     ============================================== -->
+
+<!-- 1. Deep Dive User Details Modal -->
+<div class="admin-modal-overlay" id="userDetailModal">
+    <div class="admin-modal-card modal-lg">
+        <div class="modal-header">
+            <h3><i class="fa-solid fa-address-card" style="color: #8b5cf6;"></i> User Profile & Activity</h3>
+            <button class="modal-close-btn" onclick="closeModal('userDetailModal')">&times;</button>
+        </div>
+        <div class="modal-body" id="user-detail-modal-content">
+            <!-- Dynamically populated via viewUserDetails(userId) -->
+        </div>
+        <div class="modal-footer">
+            <button class="glass-btn btn-secondary" onclick="closeModal('userDetailModal')">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- 2. Create User Modal -->
+<div class="admin-modal-overlay" id="createUserModal">
+    <div class="admin-modal-card">
+        <div class="modal-header">
+            <h3><i class="fa-solid fa-user-plus" style="color: #10b981;"></i> Create New User</h3>
+            <button class="modal-close-btn" onclick="closeModal('createUserModal')">&times;</button>
+        </div>
+        <form onsubmit="handleCreateUserSubmit(event)">
+            <div class="modal-body">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label for="create-username"><i class="fa-solid fa-user"></i> Username</label>
+                    <input type="text" id="create-username" class="toolbar-search-input" placeholder="e.g. john_doe" required autocomplete="off">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label for="create-password"><i class="fa-solid fa-lock"></i> Password</label>
+                    <input type="password" id="create-password" class="toolbar-search-input" placeholder="Enter password" required>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label for="create-confirm-password"><i class="fa-solid fa-shield"></i> Confirm Password</label>
+                    <input type="password" id="create-confirm-password" class="toolbar-search-input" placeholder="Repeat password" required>
+                </div>
+
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer;">
+                    <input type="checkbox" id="create-is-admin" style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="create-is-admin" style="cursor: pointer; margin: 0; font-weight: 600;">Grant Administrator Privileges</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="glass-btn btn-secondary" onclick="closeModal('createUserModal')">Cancel</button>
+                <button type="submit" class="glass-btn btn-primary">Create User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 3. Edit User & Reset Password Modal -->
+<div class="admin-modal-overlay" id="editUserModal">
+    <div class="admin-modal-card">
+        <div class="modal-header">
+            <h3><i class="fa-solid fa-user-pen" style="color: #8b5cf6;"></i> Edit User & Credentials</h3>
+            <button class="modal-close-btn" onclick="closeModal('editUserModal')">&times;</button>
+        </div>
+        <form onsubmit="handleEditUserSubmit(event)">
+            <input type="hidden" id="edit-user-id">
+            <div class="modal-body">
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label for="edit-username"><i class="fa-solid fa-user"></i> Username</label>
+                    <input type="text" id="edit-username" class="toolbar-search-input" required autocomplete="off">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 1.25rem;">
+                    <label for="edit-password"><i class="fa-solid fa-key"></i> New Password (Optional)</label>
+                    <input type="password" id="edit-password" class="toolbar-search-input" placeholder="Leave blank to keep unchanged">
+                </div>
+
+                <div class="form-group" style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer;">
+                    <input type="checkbox" id="edit-is-admin" style="width: 18px; height: 18px; cursor: pointer;">
+                    <label for="edit-is-admin" style="cursor: pointer; margin: 0; font-weight: 600;">Administrator Role</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="glass-btn btn-secondary" onclick="closeModal('editUserModal')">Cancel</button>
+                <button type="submit" class="glass-btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 4. Delete Confirmation Modal -->
+<div class="admin-modal-overlay" id="deleteUserModal">
+    <div class="admin-modal-card">
+        <div class="modal-header" style="border-bottom-color: rgba(239, 68, 68, 0.3);">
+            <h3 style="color: #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> Delete User Account</h3>
+            <button class="modal-close-btn" onclick="closeModal('deleteUserModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p style="margin-bottom: 1rem; color: var(--text-main); font-size: 1rem;">
+                Are you sure you want to permanently delete user <strong id="delete-user-name-placeholder" style="color: #ef4444;"></strong>?
+            </p>
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 0.9rem; font-size: 0.85rem; color: #fca5a5;">
+                <i class="fa-solid fa-circle-exclamation"></i> <strong>Warning:</strong> All image uploads, generated captions, and audio voiceovers created by this user will also be permanently deleted from the disk. This action cannot be undone.
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="glass-btn btn-secondary" onclick="closeModal('deleteUserModal')">Cancel</button>
+            <button class="glass-btn btn-danger" style="background: #ef4444; color: #ffffff;" onclick="confirmDeleteUser()">Delete Account</button>
+        </div>
+    </div>
+</div>
+
+<!-- 5. Image Lightbox Modal -->
+<div class="lightbox-modal" id="imageLightboxModal">
+    <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+    <img src="" id="lightbox-img" alt="Enlarged Preview">
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

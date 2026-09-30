@@ -26,8 +26,9 @@
             </button>
         </form>
         
-        <div class="auth-footer">
+        <div class="auth-footer" style="display: flex; flex-direction: column; gap: 0.5rem; align-items: center;">
             <p>Don't have an account? <a href="{{ url_for('register') }}">Sign Up</a></p>
+            <p style="font-size: 0.85rem;"><a href="{{ url_for('admin_login') }}" style="color: var(--text-muted); display: inline-flex; align-items: center; gap: 0.35rem;"><i class="fa-solid fa-shield-halved" style="color: #8b5cf6;"></i> Admin Portal Access</a></p>
         </div>
     </div>
 </div>

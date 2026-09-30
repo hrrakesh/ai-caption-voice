@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+
+{% block title %}Admin Login - AI Caption & Voiceover App{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <div class="glass-card auth-card admin-auth-card">
+        <div class="auth-header">
+            <div class="admin-badge-icon">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <h2>Admin Portal</h2>
+            <p>Authorized administrator access only.</p>
+        </div>
+        
+        <form method="POST" action="{{ url_for('admin_login') }}" class="auth-form">
+            <div class="form-group">
+                <label for="username"><i class="fa-solid fa-user-shield"></i> Admin Username</label>
+                <input type="text" id="username" name="username" placeholder="Enter admin username" required autocomplete="off" autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label for="password"><i class="fa-solid fa-key"></i> Password</label>
+                <input type="password" id="password" name="password" placeholder="Enter admin password" required>
+            </div>
+            
+            <button type="submit" class="glass-btn btn-admin-primary btn-block">
+                <span>Enter Admin Dashboard <i class="fa-solid fa-arrow-right"></i></span>
+            </button>
+        </form>
+        
+        <div class="auth-footer">
+            <p>Need regular access? <a href="{{ url_for('login') }}">Standard User Login</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}

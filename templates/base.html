@@ -51,8 +51,10 @@
         <!-- Navigation bar -->
         <nav class="glass-navbar">
             <div class="nav-brand">
-                <i class="fa-solid fa-microphone-lines brand-icon"></i>
-                <span>Voice Over</span>
+                <a href="{{ url_for('index') }}" style="display: inline-flex; align-items: center; gap: 0.6rem; text-decoration: none; color: inherit;">
+                    <i class="fa-solid fa-microphone-lines brand-icon"></i>
+                    <span>Voice Over</span>
+                </a>
             </div>
             <div class="nav-links">
                 <!-- Theme Toggle Button -->
@@ -61,9 +63,17 @@
                 </button>
                 
                 {% if current_user.is_authenticated %}
-                    <span class="user-greeting"><i class="fa-solid fa-user"></i> {{ current_user.username }}</span>
+                    {% if current_user.is_admin %}
+                        <a href="{{ url_for('admin_dashboard') }}" class="nav-btn btn-admin" title="Admin Dashboard">
+                            <i class="fa-solid fa-shield-halved"></i> Admin Panel
+                        </a>
+                    {% endif %}
+                    <span class="user-greeting">
+                        <i class="fa-solid {% if current_user.is_admin %}fa-user-shield{% else %}fa-user{% endif %}"></i> {{ current_user.username }}
+                    </span>
                     <a href="{{ url_for('logout') }}" class="nav-btn btn-logout"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
                 {% else %}
+                    <a href="{{ url_for('admin_login') }}" class="nav-link-btn" title="Admin Access"><i class="fa-solid fa-shield-halved"></i> Admin</a>
                     <a href="{{ url_for('login') }}" class="nav-link-btn">Login</a>
                     <a href="{{ url_for('register') }}" class="nav-btn btn-register">Sign Up</a>
                 {% endif %}

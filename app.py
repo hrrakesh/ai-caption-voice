@@ -7,6 +7,8 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from functools import wraps
+from sqlalchemy import text, inspect
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -18,6 +20,14 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'antigravity-secret-key-13579')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///voice_caption_app.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# =========================================================================
+# HARDCODED ADMIN CREDENTIALS CONFIGURATION
+# To change the admin username or password, modify these two lines directly:
+# =========================================================================
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "123"
+# =========================================================================
 
 # Configure upload paths
 UPLOAD_FOLDER = os.path.join('static', 'uploads')
@@ -49,7 +59,20 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime, nullable=True)
     captions = db.relationship('CaptionHistory', backref='user', lazy=True, cascade='all, delete-orphan')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'is_admin': bool(self.is_admin),
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else 'N/A',
+            'last_login': self.last_login.strftime('%Y-%m-%d %H:%M') if self.last_login else 'Never',
+            'caption_count': len(self.captions)
+        }
 
 # Caption History Model
 class CaptionHistory(db.Model):
@@ -61,13 +84,123 @@ class CaptionHistory(db.Model):
     voice = db.Column(db.String(50), nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'image_filename': self.image_filename,
+            'caption': self.caption,
+            'audio_filename': self.audio_filename,
+            'voice': self.voice,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M') if self.timestamp else 'N/A'
+        }
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Create database tables helper
-with app.app_context():
-    db.create_all()
+# Admin Access Decorator
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            flash('Please log in with administrator credentials.', 'warning')
+            return redirect(url_for('admin_login'))
+        if not getattr(current_user, 'is_admin', False):
+            flash('Access denied. Administrator privileges required.', 'danger')
+            return redirect(url_for('index'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Utility Helpers
+def format_file_size(bytes_size):
+    if bytes_size is None or bytes_size < 0:
+        return "0 B"
+    if bytes_size < 1024:
+        return f"{bytes_size} B"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.1f} KB"
+    elif bytes_size < 1024 * 1024 * 1024:
+        return f"{bytes_size / (1024 * 1024):.2f} MB"
+    else:
+        return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"
+
+def get_folder_size(folder_path):
+    total = 0
+    file_count = 0
+    if os.path.exists(folder_path):
+        for entry in os.scandir(folder_path):
+            if entry.is_file() and not entry.name.startswith('.'):
+                total += entry.stat().st_size
+                file_count += 1
+    return total, file_count
+
+def get_user_storage_usage(user_id):
+    captions = CaptionHistory.query.filter_by(user_id=user_id).all()
+    total_bytes = 0
+    for cap in captions:
+        img_path = os.path.join(IMAGE_FOLDER, cap.image_filename)
+        audio_path = os.path.join(AUDIO_FOLDER, cap.audio_filename)
+        if os.path.exists(img_path):
+            total_bytes += os.path.getsize(img_path)
+        if os.path.exists(audio_path):
+            total_bytes += os.path.getsize(audio_path)
+    return total_bytes
+
+# Database Migration & Admin Seeding Helper
+def init_db():
+    with app.app_context():
+        db.create_all()
+        # Safe migration for existing SQLite databases
+        try:
+            insp = inspect(db.engine)
+            if 'user' in insp.get_table_names():
+                existing_cols = [c['name'] for c in insp.get_columns('user')]
+                with db.engine.connect() as conn:
+                    if 'is_admin' not in existing_cols:
+                        conn.execute(text("ALTER TABLE user ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
+                    if 'created_at' not in existing_cols:
+                        conn.execute(text("ALTER TABLE user ADD COLUMN created_at DATETIME"))
+                    if 'last_login' not in existing_cols:
+                        conn.execute(text("ALTER TABLE user ADD COLUMN last_login DATETIME"))
+                    conn.commit()
+        except Exception as e:
+            print(f"Migration note: {e}")
+
+        # Ensure Admin user exists with ADMIN_USERNAME and ADMIN_PASSWORD
+        try:
+            admin_user = User.query.filter_by(username=ADMIN_USERNAME).first()
+            if not admin_user:
+                admin_user = User(
+                    username=ADMIN_USERNAME,
+                    password_hash=generate_password_hash(ADMIN_PASSWORD),
+                    is_admin=True,
+                    created_at=datetime.utcnow()
+                )
+                db.session.add(admin_user)
+                db.session.commit()
+                print(f"Default admin created: {ADMIN_USERNAME}")
+            else:
+                admin_user.is_admin = True
+                # Automatically sync password in database if ADMIN_PASSWORD was changed in app.py
+                if not check_password_hash(admin_user.password_hash, ADMIN_PASSWORD):
+                    admin_user.password_hash = generate_password_hash(ADMIN_PASSWORD)
+                    print(f"Admin password updated to match app.py ADMIN_PASSWORD")
+                if not admin_user.created_at:
+                    admin_user.created_at = datetime.utcnow()
+                db.session.commit()
+
+            # Fill missing created_at for legacy users
+            null_users = User.query.filter(User.created_at == None).all()
+            for u in null_users:
+                u.created_at = datetime.utcnow()
+            if null_users:
+                db.session.commit()
+        except Exception as e:
+            print(f"Admin seeding error: {e}")
+
+# Initialize DB on load
+init_db()
 
 # Helper: Encode local image to base64
 def encode_image(image_path):
@@ -85,6 +218,8 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
+        if getattr(current_user, 'is_admin', False):
+            return redirect(url_for('admin_dashboard'))
         return redirect(url_for('index'))
         
     if request.method == 'POST':
@@ -92,14 +227,71 @@ def login():
         password = request.form.get('password', '').strip()
         
         user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password_hash, password):
+        
+        # Check authentication (strict match with ADMIN_PASSWORD if hardcoded admin username)
+        if user and username == ADMIN_USERNAME:
+            if password == ADMIN_PASSWORD:
+                password_matches = True
+                user.is_admin = True
+                if not check_password_hash(user.password_hash, ADMIN_PASSWORD):
+                    user.password_hash = generate_password_hash(ADMIN_PASSWORD)
+            else:
+                password_matches = False
+        else:
+            password_matches = bool(user and check_password_hash(user.password_hash, password))
+        
+        if user and password_matches:
+            user.last_login = datetime.utcnow()
+            db.session.commit()
             login_user(user)
-            flash('Successfully logged in!', 'success')
+            flash(f'Successfully logged in! Welcome, {user.username}.', 'success')
+            if user.is_admin:
+                return redirect(url_for('admin_dashboard'))
             return redirect(url_for('index'))
         else:
             flash('Invalid username or password.', 'danger')
             
     return render_template('login.html')
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    if current_user.is_authenticated:
+        if getattr(current_user, 'is_admin', False):
+            return redirect(url_for('admin_dashboard'))
+        flash('You are logged in as a standard user. Administrator privileges required.', 'warning')
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+
+        user = User.query.filter_by(username=username).first()
+
+        # Check authentication (strict match with ADMIN_PASSWORD if hardcoded admin username)
+        if user and username == ADMIN_USERNAME:
+            if password == ADMIN_PASSWORD:
+                password_matches = True
+                user.is_admin = True
+                if not check_password_hash(user.password_hash, ADMIN_PASSWORD):
+                    user.password_hash = generate_password_hash(ADMIN_PASSWORD)
+            else:
+                password_matches = False
+        else:
+            password_matches = bool(user and check_password_hash(user.password_hash, password))
+
+        if user and password_matches:
+            if user.is_admin:
+                user.last_login = datetime.utcnow()
+                db.session.commit()
+                login_user(user)
+                flash('Welcome to the Admin Dashboard!', 'success')
+                return redirect(url_for('admin_dashboard'))
+            else:
+                flash('Access denied. This user does not have administrator privileges.', 'danger')
+        else:
+            flash('Invalid administrator credentials.', 'danger')
+
+    return render_template('admin_login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -276,6 +468,310 @@ def delete_history(item_id):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': f"Failed to delete: {str(e)}"}), 500
+
+# ==========================================
+# ADMIN DASHBOARD & MANAGEMENT ROUTES
+# ==========================================
+
+@app.route('/admin')
+@app.route('/admin/dashboard')
+@admin_required
+def admin_dashboard():
+    # 1. Fetch Users
+    users = User.query.order_by(User.id.asc()).all()
+    total_users = len(users)
+    admin_count = sum(1 for u in users if u.is_admin)
+    regular_count = total_users - admin_count
+    
+    # 2. Fetch Captions & Voiceovers
+    all_captions = CaptionHistory.query.order_by(CaptionHistory.timestamp.desc()).all()
+    total_generations = len(all_captions)
+    
+    # 3. Storage Calculations
+    img_bytes, img_count = get_folder_size(IMAGE_FOLDER)
+    audio_bytes, audio_count = get_folder_size(AUDIO_FOLDER)
+    total_storage_bytes = img_bytes + audio_bytes
+    
+    db_path = os.path.join(app.instance_path, 'voice_caption_app.db')
+    db_size_bytes = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    
+    # 4. Voice Analytics
+    voices_list = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']
+    voice_counts = {v: 0 for v in voices_list}
+    for cap in all_captions:
+        v_name = cap.voice.lower() if cap.voice else 'alloy'
+        if v_name in voice_counts:
+            voice_counts[v_name] += 1
+        else:
+            voice_counts[v_name] = voice_counts.get(v_name, 0) + 1
+            
+    top_voice_item = max(voice_counts.items(), key=lambda x: x[1]) if voice_counts and total_generations > 0 else ('None', 0)
+    top_voice = {
+        'name': top_voice_item[0].capitalize() if top_voice_item[1] > 0 else 'N/A',
+        'count': top_voice_item[1],
+        'percentage': round((top_voice_item[1] / total_generations * 100), 1) if total_generations > 0 else 0
+    }
+    
+    voice_stats = []
+    for v in voices_list:
+        cnt = voice_counts.get(v, 0)
+        pct = round((cnt / total_generations * 100), 1) if total_generations > 0 else 0
+        voice_stats.append({
+            'name': v.capitalize(),
+            'slug': v,
+            'count': cnt,
+            'percentage': pct
+        })
+    
+    # 5. Enriched Users List
+    user_data = []
+    active_creators = 0
+    for u in users:
+        u_caps = u.captions
+        gen_count = len(u_caps)
+        if gen_count > 0:
+            active_creators += 1
+            
+        user_bytes = 0
+        for c in u_caps:
+            ipath = os.path.join(IMAGE_FOLDER, c.image_filename)
+            apath = os.path.join(AUDIO_FOLDER, c.audio_filename)
+            if os.path.exists(ipath):
+                user_bytes += os.path.getsize(ipath)
+            if os.path.exists(apath):
+                user_bytes += os.path.getsize(apath)
+                
+        latest_cap = max(u_caps, key=lambda c: c.timestamp) if u_caps else None
+        
+        user_data.append({
+            'id': u.id,
+            'username': u.username,
+            'is_admin': bool(u.is_admin),
+            'created_at': u.created_at,
+            'last_login': u.last_login,
+            'generation_count': gen_count,
+            'storage_bytes': user_bytes,
+            'storage_formatted': format_file_size(user_bytes),
+            'latest_generation': latest_cap.timestamp if latest_cap else None
+        })
+        
+    stats = {
+        'total_users': total_users,
+        'admin_count': admin_count,
+        'regular_count': regular_count,
+        'active_creators': active_creators,
+        'total_generations': total_generations,
+        'total_storage_formatted': format_file_size(total_storage_bytes),
+        'total_storage_bytes': total_storage_bytes,
+        'img_count': img_count,
+        'img_size_formatted': format_file_size(img_bytes),
+        'audio_count': audio_count,
+        'audio_size_formatted': format_file_size(audio_bytes),
+        'db_size_formatted': format_file_size(db_size_bytes),
+        'top_voice': top_voice,
+        'openai_configured': bool(os.environ.get("OPENAI_API_KEY"))
+    }
+    
+    return render_template('admin.html',
+                           users=user_data,
+                           captions=all_captions,
+                           stats=stats,
+                           voice_stats=voice_stats)
+
+@app.route('/admin/api/user/<int:user_id>')
+@admin_required
+def admin_api_user_detail(user_id):
+    user = User.query.get_or_404(user_id)
+    captions = CaptionHistory.query.filter_by(user_id=user.id).order_by(CaptionHistory.timestamp.desc()).all()
+    
+    total_bytes = 0
+    cap_data = []
+    for c in captions:
+        ipath = os.path.join(IMAGE_FOLDER, c.image_filename)
+        apath = os.path.join(AUDIO_FOLDER, c.audio_filename)
+        isize = os.path.getsize(ipath) if os.path.exists(ipath) else 0
+        asize = os.path.getsize(apath) if os.path.exists(apath) else 0
+        total_bytes += (isize + asize)
+        
+        cap_data.append({
+            'id': c.id,
+            'image_url': url_for('static', filename='uploads/images/' + c.image_filename),
+            'audio_url': url_for('static', filename='uploads/audio/' + c.audio_filename),
+            'caption': c.caption,
+            'voice': c.voice.capitalize() if c.voice else 'Alloy',
+            'timestamp': c.timestamp.strftime('%Y-%m-%d %H:%M') if c.timestamp else 'N/A',
+            'size_formatted': format_file_size(isize + asize)
+        })
+        
+    return jsonify({
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'is_admin': bool(user.is_admin),
+            'created_at': user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A',
+            'last_login': user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never',
+            'total_generations': len(captions),
+            'total_storage_formatted': format_file_size(total_bytes)
+        },
+        'generations': cap_data
+    })
+
+@app.route('/admin/api/users/create', methods=['POST'])
+@admin_required
+def admin_create_user():
+    data = request.get_json(silent=True) or request.form
+    username = data.get('username', '').strip()
+    password = data.get('password', '').strip()
+    is_admin_raw = data.get('is_admin')
+    is_admin = str(is_admin_raw).lower() in ['true', '1', 'on', 'yes']
+    
+    if not username or not password:
+        return jsonify({'error': 'Username and password are required.'}), 400
+        
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': f'Username "{username}" is already taken.'}), 400
+        
+    new_user = User(
+        username=username,
+        password_hash=generate_password_hash(password),
+        is_admin=is_admin,
+        created_at=datetime.utcnow()
+    )
+    db.session.add(new_user)
+    db.session.commit()
+    
+    return jsonify({
+        'success': True,
+        'message': f'User "{username}" created successfully.',
+        'user': new_user.to_dict()
+    })
+
+@app.route('/admin/api/users/<int:user_id>/update', methods=['POST'])
+@admin_required
+def admin_update_user(user_id):
+    user = User.query.get_or_404(user_id)
+    data = request.get_json(silent=True) or request.form
+    
+    new_username = data.get('username', '').strip()
+    new_password = data.get('password', '').strip()
+    is_admin_raw = data.get('is_admin')
+    
+    if new_username and new_username != user.username:
+        existing = User.query.filter_by(username=new_username).first()
+        if existing and existing.id != user.id:
+            return jsonify({'error': f'Username "{new_username}" is already taken.'}), 400
+        user.username = new_username
+        
+    if new_password:
+        user.password_hash = generate_password_hash(new_password)
+        
+    if is_admin_raw is not None:
+        flag = str(is_admin_raw).lower() in ['true', '1', 'on', 'yes']
+        if user.id == current_user.id and not flag:
+            return jsonify({'error': 'You cannot remove admin privileges from your own account.'}), 400
+        user.is_admin = flag
+        
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'message': f'User "{user.username}" updated successfully.',
+        'user': user.to_dict()
+    })
+
+@app.route('/admin/api/users/<int:user_id>/toggle-admin', methods=['POST'])
+@admin_required
+def admin_toggle_role(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        return jsonify({'error': 'You cannot remove admin privileges from your own account.'}), 400
+        
+    user.is_admin = not user.is_admin
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'is_admin': bool(user.is_admin),
+        'message': f'Updated role for "{user.username}" to {"Administrator" if user.is_admin else "Standard User"}.'
+    })
+
+@app.route('/admin/api/users/<int:user_id>/delete', methods=['POST'])
+@admin_required
+def admin_delete_user(user_id):
+    user = User.query.get_or_404(user_id)
+    if user.id == current_user.id:
+        return jsonify({'error': 'You cannot delete your own account while logged in.'}), 400
+        
+    username = user.username
+    try:
+        # Delete user's files
+        for cap in user.captions:
+            img_path = os.path.join(IMAGE_FOLDER, cap.image_filename)
+            audio_path = os.path.join(AUDIO_FOLDER, cap.audio_filename)
+            if os.path.exists(img_path):
+                os.remove(img_path)
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+                
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'User "{username}" and all associated data have been permanently deleted.'
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete user: {str(e)}'}), 500
+
+@app.route('/admin/api/generations/<int:item_id>/delete', methods=['POST'])
+@admin_required
+def admin_delete_generation(item_id):
+    cap = CaptionHistory.query.get_or_404(item_id)
+    try:
+        img_path = os.path.join(IMAGE_FOLDER, cap.image_filename)
+        audio_path = os.path.join(AUDIO_FOLDER, cap.audio_filename)
+        if os.path.exists(img_path):
+            os.remove(img_path)
+        if os.path.exists(audio_path):
+            os.remove(audio_path)
+            
+        db.session.delete(cap)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Generation record deleted successfully.'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete generation: {str(e)}'}), 500
+
+@app.route('/admin/api/system/cleanup-orphaned', methods=['POST'])
+@admin_required
+def admin_cleanup_orphaned():
+    try:
+        valid_images = {c.image_filename for c in CaptionHistory.query.all()}
+        valid_audio = {c.audio_filename for c in CaptionHistory.query.all()}
+        
+        deleted_count = 0
+        freed_bytes = 0
+        
+        if os.path.exists(IMAGE_FOLDER):
+            for entry in os.scandir(IMAGE_FOLDER):
+                if entry.is_file() and not entry.name.startswith('.') and entry.name not in valid_images:
+                    freed_bytes += entry.stat().st_size
+                    os.remove(entry.path)
+                    deleted_count += 1
+                    
+        if os.path.exists(AUDIO_FOLDER):
+            for entry in os.scandir(AUDIO_FOLDER):
+                if entry.is_file() and not entry.name.startswith('.') and entry.name not in valid_audio:
+                    freed_bytes += entry.stat().st_size
+                    os.remove(entry.path)
+                    deleted_count += 1
+                    
+        return jsonify({
+            'success': True,
+            'deleted_count': deleted_count,
+            'freed_formatted': format_file_size(freed_bytes),
+            'message': f'Cleaned up {deleted_count} orphaned files ({format_file_size(freed_bytes)} freed).'
+        })
+    except Exception as e:
+        return jsonify({'error': f'Cleanup failed: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
