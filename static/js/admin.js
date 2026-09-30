@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initAdminTabs();
     initUserSearchAndFilters();
     initGenerationsSearch();
+    initAdminClock();
 });
 
 // Toast notification helper
@@ -221,7 +222,7 @@ async function viewUserDetails(userId) {
                 </div>
                 <div class="user-profile-meta">
                     <h4>${user.username} ${roleBadgeHtml}</h4>
-                    <p>User ID: #${user.id} · Registered: ${user.created_at}</p>
+                    <p>User ID: #${user.id} · Registered (IST): ${user.created_at}</p>
                 </div>
             </div>
 
@@ -236,7 +237,7 @@ async function viewUserDetails(userId) {
                 </div>
                 <div class="mini-stat-card">
                     <div class="mini-stat-num" style="font-size: 0.95rem;">${user.last_login}</div>
-                    <div class="mini-stat-label">Last Login</div>
+                    <div class="mini-stat-label">Last Login (IST)</div>
                 </div>
             </div>
 
@@ -457,3 +458,31 @@ function closeLightbox() {
         document.body.style.overflow = '';
     }
 }
+
+// === LIVE IST CLOCK ===
+function initAdminClock() {
+    const clockEl = document.getElementById('admin-live-time');
+    const diagClockEl = document.getElementById('diag-ist-time');
+    if (!clockEl && !diagClockEl) return;
+
+    function updateClock() {
+        const now = new Date();
+        const formatted = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Kolkata',
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        }).format(now);
+
+        if (clockEl) clockEl.textContent = formatted;
+        if (diagClockEl) diagClockEl.textContent = `${formatted} IST`;
+    }
+
+    updateClock();
+    setInterval(updateClock, 1000);
+}
+

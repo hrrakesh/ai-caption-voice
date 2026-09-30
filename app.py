@@ -1,7 +1,7 @@
 import os
 import base64
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
@@ -54,6 +54,33 @@ def get_openai_client():
         raise ValueError("OpenAI API key not found. Please configure OPENAI_API_KEY in your environment or .env file.")
     return OpenAI(api_key=api_key)
 
+# =========================================================================
+# TIMEZONE CONFIGURATION (Indian Standard Time: UTC+05:30)
+# =========================================================================
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def to_ist(dt):
+    """Convert naive (assumed UTC) or timezone-aware datetime to IST."""
+    if not dt:
+        return None
+    if getattr(dt, 'tzinfo', None) is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST)
+
+def format_ist(dt, fmt='%Y-%m-%d %H:%M'):
+    """Convert datetime to IST and format as string."""
+    if not dt:
+        return 'N/A'
+    ist_dt = to_ist(dt)
+    return ist_dt.strftime(fmt)
+
+@app.template_filter('to_ist')
+def jinja_to_ist(dt, fmt='%Y-%m-%d %H:%M'):
+    """Jinja template filter to format any datetime into IST."""
+    if not dt:
+        return 'N/A'
+    return format_ist(dt, fmt)
+
 # User Database Model
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -69,8 +96,8 @@ class User(UserMixin, db.Model):
             'id': self.id,
             'username': self.username,
             'is_admin': bool(self.is_admin),
-            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M') if self.created_at else 'N/A',
-            'last_login': self.last_login.strftime('%Y-%m-%d %H:%M') if self.last_login else 'Never',
+            'created_at': format_ist(self.created_at, '%Y-%m-%d %H:%M') + ' IST' if self.created_at else 'N/A',
+            'last_login': format_ist(self.last_login, '%Y-%m-%d %H:%M') + ' IST' if self.last_login else 'Never',
             'caption_count': len(self.captions)
         }
 
@@ -92,7 +119,7 @@ class CaptionHistory(db.Model):
             'caption': self.caption,
             'audio_filename': self.audio_filename,
             'voice': self.voice,
-            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M') if self.timestamp else 'N/A'
+            'timestamp': format_ist(self.timestamp, '%Y-%m-%d %H:%M') + ' IST' if self.timestamp else 'N/A'
         }
 
 @login_manager.user_loader
@@ -572,11 +599,14 @@ def admin_dashboard():
         'openai_configured': bool(os.environ.get("OPENAI_API_KEY"))
     }
     
+    current_ist_time = datetime.now(IST).strftime('%b %d, %Y, %I:%M:%S %p')
+    
     return render_template('admin.html',
                            users=user_data,
                            captions=all_captions,
                            stats=stats,
-                           voice_stats=voice_stats)
+                           voice_stats=voice_stats,
+                           current_ist_time=current_ist_time)
 
 @app.route('/admin/api/user/<int:user_id>')
 @admin_required
@@ -599,7 +629,7 @@ def admin_api_user_detail(user_id):
             'audio_url': url_for('static', filename='uploads/audio/' + c.audio_filename),
             'caption': c.caption,
             'voice': c.voice.capitalize() if c.voice else 'Alloy',
-            'timestamp': c.timestamp.strftime('%Y-%m-%d %H:%M') if c.timestamp else 'N/A',
+            'timestamp': format_ist(c.timestamp, '%Y-%m-%d %I:%M %p') + ' IST' if c.timestamp else 'N/A',
             'size_formatted': format_file_size(isize + asize)
         })
         
@@ -608,8 +638,8 @@ def admin_api_user_detail(user_id):
             'id': user.id,
             'username': user.username,
             'is_admin': bool(user.is_admin),
-            'created_at': user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A',
-            'last_login': user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else 'Never',
+            'created_at': format_ist(user.created_at, '%b %d, %Y %I:%M %p') + ' IST' if user.created_at else 'N/A',
+            'last_login': format_ist(user.last_login, '%b %d, %Y %I:%M %p') + ' IST' if user.last_login else 'Never',
             'total_generations': len(captions),
             'total_storage_formatted': format_file_size(total_bytes)
         },

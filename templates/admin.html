@@ -19,6 +19,9 @@
                 <div class="admin-header-subtitle">
                     <span>Logged in as <strong>{{ current_user.username }}</strong></span>
                     <span class="admin-badge-pill"><i class="fa-solid fa-shield-halved"></i> Super Admin</span>
+                    <span class="admin-badge-pill admin-badge-time" id="admin-clock-badge" title="Live Indian Standard Time (IST, UTC+05:30)">
+                        <i class="fa-regular fa-clock"></i> <span id="admin-live-time">{{ current_ist_time }}</span> <span style="font-size: 0.7rem; font-weight: 700; opacity: 0.85;">IST</span>
+                    </span>
                 </div>
             </div>
         </div>
@@ -140,8 +143,8 @@
                             <th>Role</th>
                             <th>Creations</th>
                             <th>Storage Used</th>
-                            <th>Registered On</th>
-                            <th>Last Active</th>
+                            <th>Registered On (IST)</th>
+                            <th>Last Active (IST)</th>
                             <th style="text-align: right;">Actions</th>
                         </tr>
                     </thead>
@@ -206,10 +209,10 @@
 
                             <!-- Registered Date -->
                             <td>
-                                <span style="font-size: 0.85rem; color: var(--text-muted);">
+                                <span style="font-size: 0.85rem; color: var(--text-muted);" title="{{ u.created_at|to_ist('%Y-%m-%d %I:%M:%S %p IST') if u.created_at else 'N/A' }}">
                                     <i class="fa-regular fa-calendar-days"></i> 
                                     {% if u.created_at %}
-                                        {{ u.created_at.strftime('%b %d, %Y') }}
+                                        {{ u.created_at|to_ist('%b %d, %Y %I:%M %p') }} <small style="font-size: 0.72rem; opacity: 0.8; font-weight: 600;">IST</small>
                                     {% else %}
                                         N/A
                                     {% endif %}
@@ -218,11 +221,11 @@
 
                             <!-- Last Active -->
                             <td>
-                                <span style="font-size: 0.85rem; color: var(--text-muted);">
+                                <span style="font-size: 0.85rem; color: var(--text-muted);" title="{{ u.last_login|to_ist('%Y-%m-%d %I:%M:%S %p IST') if u.last_login else (u.latest_generation|to_ist('%Y-%m-%d %I:%M:%S %p IST') if u.latest_generation else 'Never') }}">
                                     {% if u.last_login %}
-                                        <i class="fa-regular fa-clock text-success"></i> {{ u.last_login.strftime('%b %d, %H:%M') }}
+                                        <i class="fa-regular fa-clock text-success"></i> {{ u.last_login|to_ist('%b %d, %I:%M %p') }} <small style="font-size: 0.72rem; opacity: 0.8; font-weight: 600;">IST</small>
                                     {% elif u.latest_generation %}
-                                        <i class="fa-regular fa-clock"></i> {{ u.latest_generation.strftime('%b %d, %H:%M') }}
+                                        <i class="fa-regular fa-clock"></i> {{ u.latest_generation|to_ist('%b %d, %I:%M %p') }} <small style="font-size: 0.72rem; opacity: 0.8; font-weight: 600;">IST</small>
                                     {% else %}
                                         <span style="opacity: 0.6;">Never</span>
                                     {% endif %}
@@ -289,7 +292,7 @@
                             <th>Generated Caption</th>
                             <th>Voice Model</th>
                             <th>Voiceover Audio</th>
-                            <th>Timestamp</th>
+                            <th>Timestamp (IST)</th>
                             <th style="text-align: right;">Action</th>
                         </tr>
                     </thead>
@@ -345,8 +348,8 @@
 
                                 <!-- Timestamp -->
                                 <td>
-                                    <span style="font-size: 0.82rem; color: var(--text-muted);">
-                                        {{ c.timestamp.strftime('%Y-%m-%d %H:%M') }}
+                                    <span style="font-size: 0.82rem; color: var(--text-muted);" title="{{ c.timestamp|to_ist('%A, %d %B %Y %I:%M:%S %p IST') }}">
+                                        {{ c.timestamp|to_ist('%Y-%m-%d %I:%M %p') }} <small style="font-size: 0.72rem; opacity: 0.8; font-weight: 600;">IST</small>
                                     </span>
                                 </td>
 
@@ -486,6 +489,19 @@
                         <span class="status-dot dot-green"></span>
                         <span>Flask-Login Authenticated</span>
                     </span>
+                </div>
+
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Dashboard Timezone</span>
+                    <span class="status-pill">
+                        <span class="status-dot dot-green"></span>
+                        <span style="color: #10b981;">Indian Standard Time (IST, UTC+05:30)</span>
+                    </span>
+                </div>
+
+                <div class="diagnostic-item">
+                    <span class="diagnostic-label">Current Server Time (IST)</span>
+                    <span class="diagnostic-value" id="diag-ist-time">{{ current_ist_time }} IST</span>
                 </div>
             </div>
         </div>
